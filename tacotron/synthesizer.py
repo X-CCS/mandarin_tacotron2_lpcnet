@@ -195,7 +195,7 @@ class Synthesizer:
 	# wav = audio.inv_preemphasis(linear_wavs, hparams.preemphasis)
 	# out = io.BytesIO()
 	# audio.save_wav(wav, out, hparams)
-	# return out.getvalue()
+	# return out.getvalue()s
 
 
 	def _round_up(self, x, multiple):
