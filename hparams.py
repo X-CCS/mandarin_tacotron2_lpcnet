@@ -62,6 +62,7 @@ hparams = tf.contrib.training.HParams(
 	#Tacotron
 	outputs_per_step = 2, #number of frames to generate at each decoding step (speeds up computation and allows for higher batch size)
 	stop_at_any = False, #Determines whether the decoder should stop when predicting <stop> to any frame or to all of them
+    batch_norm_position = 'after', #Can be in ('before', 'after'). Determines whether we use batch norm before or after the activation function (relu). Matter for debate.
 
 	embedding_dim = 512, #dimension of embedding space
 
@@ -75,7 +76,16 @@ hparams = tf.contrib.training.HParams(
 	attention_filters = 32, #number of attention convolution filters
 	attention_kernel = (31, ), #kernel size of attention convolution
 	cumulative_weights = True, #Whether to cumulate (sum) all previous attention weights or simply feed previous weights (Recommended: True)
-
+	
+	# Attention synthesis constraints
+	# "Monotonic" constraint forces the model to only look at the forwards attention_win_size steps.
+	# "Window" allows the model to look at attention_win_size neighbors, both forward and backward steps.
+	synthesis_constraint=False,
+	# Whether to use attention windows constraints in synthesis only (Useful for long utterances synthesis)
+	synthesis_constraint_type='window',  # can be in ('window', 'monotonic').
+	attention_win_size=7,
+	# Side of the window. Current step does not count. If mode is window and attention_win_size is not pair, the 1 extra is provided to backward part of the window.
+	
 	prenet_layers = [256, 256], #number of layers and number of units of prenet
 	decoder_layers = 2, #number of decoder lstm layers
 	decoder_lstm_units = 1024, #number of decoder lstm units on each layer
@@ -85,58 +95,96 @@ hparams = tf.contrib.training.HParams(
 	postnet_kernel_size = (5, ), #size of postnet convolution filters for each layer
 	postnet_channels = 512, #number of postnet convolution filters for each layer
 
-	mask_encoder = False, #whether to mask encoder padding while computing attention
-	mask_decoder = False, #Whether to use loss mask for padded sequences (if False, <stop_token> loss function will not be weighted, else recommended pos_weight = 20)
-
-	cross_entropy_pos_weight = 1, #Use class weights to reduce the stop token classes imbalance (by adding more penalty on False Negatives (FN)) (1 = disabled)
-	predict_linear = True, #Whether to add a post-processing network to the Tacotron to predict linear spectrograms (True mode Not tested!!)
+	# mask_encoder = False, #whether to mask encoder padding while computing attention
+	# mask_decoder = False, #Whether to use loss mask for padded sequences (if False, <stop_token> loss function will not be weighted, else recommended pos_weight = 20)
+	
+	# CBHG mel->linear postnet
+	cbhg_kernels=8,
+	# All kernel sizes from 1 to cbhg_kernels will be used in the convolution bank of CBHG to act as "K-grams"
+	cbhg_conv_channels=128,  # Channels of the convolution bank
+	cbhg_pool_size=2,  # pooling size of the CBHG
+	cbhg_projection=256,  # projection channels of the CBHG (1st projection, 2nd is automatically set to num_mels)
+	cbhg_projection_kernel_size=3,  # kernel_size of the CBHG projections
+	cbhg_highwaynet_layers=4,  # Number of HighwayNet layers
+	cbhg_highway_units=128,  # Number of units used in HighwayNet fully connected layers
+	cbhg_rnn_units=128,
+	# Number of GRU units used in bidirectional RNN of CBHG block. CBHG output is 2x rnn_units in shape
+	
+	# cross_entropy_pos_weight = 1, #Use class weights to reduce the stop token classes imbalance (by adding more penalty on False Negatives (FN)) (1 = disabled)
+	# predict_linear = True, #Whether to add a post-processing network to the Tacotron to predict linear spectrograms (True mode Not tested!!)
+	# Loss params
+	mask_encoder=True,
+	# whether to mask encoder padding while computing attention. Set to True for better prosody but slower convergence.
+	mask_decoder=False,
+	# Whether to use loss mask for padded sequences (if False, <stop_token> loss function will not be weighted, else recommended pos_weight = 20)
+	cross_entropy_pos_weight=1,
+	# Use class weights to reduce the stop token classes imbalance (by adding more penalty on False Negatives (FN)) (1 = disabled)
+	predict_linear=True,
+	# Whether to add a post-processing network to the Tacotron to predict linear spectrograms (True mode Not tested!!)
 	###########################################################################################################################################
-
-	#Tacotron Training
-	tacotron_random_seed = 5339, #Determines initial graph and operations (i.e: model) random state for reproducibility
-	tacotron_swap_with_cpu = False, #Whether to use cpu as support to gpu for decoder computation (Not recommended: may cause major slowdowns! Only use when critical!)
-
-	tacotron_batch_size = 32, #number of training samples on each training steps
-	tacotron_reg_weight = 1e-6, #regularization weight (for L2 regularization)
-	tacotron_scale_regularization = True, #Whether to rescale regularization weight to adapt for outputs range (used when reg_weight is high and biasing the model)
-
-	tacotron_test_size = None, #% of data to keep as test data, if None, tacotron_test_batches must be not None
-	tacotron_test_batches = 32, #number of test batches (For Ljspeech: 10% ~= 41 batches of 32 samples)
-	tacotron_data_random_state=1234, #random state for train test split repeatability
-
-	#Usually your GPU can handle 16x tacotron_batch_size during synthesis for the same memory amount during training (because no gradients to keep and ops to register for backprop)
-	tacotron_synthesis_batch_size = 32 * 16, #This ensures GTA synthesis goes up to 40x faster than one sample at a time and uses 100% of your GPU computation power.
-
-	tacotron_decay_learning_rate = True, #boolean, determines if the learning rate will follow an exponential decay
-	tacotron_start_decay = 50000, #Step at which learning decay starts
-	tacotron_decay_steps = 50000, #Determines the learning rate decay slope (UNDER TEST)
-	tacotron_decay_rate = 0.4, #learning rate decay rate (UNDER TEST)
-	tacotron_initial_learning_rate = 1e-3, #starting learning rate
-	tacotron_final_learning_rate = 1e-5, #minimal learning rate
-
-	tacotron_adam_beta1 = 0.9, #AdamOptimizer beta1 parameter
-	tacotron_adam_beta2 = 0.999, #AdamOptimizer beta2 parameter
-	tacotron_adam_epsilon = 1e-6, #AdamOptimizer beta3 parameter
-
-	tacotron_zoneout_rate = 0.1, #zoneout rate for all LSTM cells in the network
-	tacotron_dropout_rate = 0.5, #dropout rate for all convolutional layers + prenet
-
-	tacotron_clip_gradients = True, #whether to clip gradients
-	natural_eval = False, #Whether to use 100% natural eval (to evaluate Curriculum Learning performance) or with same teacher-forcing ratio as in training (just for overfit)
-
-	#Decoder RNN learning can take be done in one of two ways:
-	#	Teacher Forcing: vanilla teacher forcing (usually with ratio = 1). mode='constant'
-	#	Curriculum Learning Scheme: From Teacher-Forcing to sampling from previous outputs is function of global step. (teacher forcing ratio decay) mode='scheduled'
-	#The second approach is inspired by:
-	#Bengio et al. 2015: Scheduled Sampling for Sequence Prediction with Recurrent Neural Networks.
-	#Can be found under: https://arxiv.org/pdf/1506.03099.pdf
-	tacotron_teacher_forcing_mode = 'constant', #Can be ('constant' or 'scheduled'). 'scheduled' mode applies a cosine teacher forcing ratio decay. (Preference: scheduled)
-	tacotron_teacher_forcing_ratio = 1., #Value from [0., 1.], 0.=0%, 1.=100%, determines the % of times we force next decoder inputs, Only relevant if mode='constant'
-	tacotron_teacher_forcing_init_ratio = 1., #initial teacher forcing ratio. Relevant if mode='scheduled'
-	tacotron_teacher_forcing_final_ratio = 0., #final teacher forcing ratio. Relevant if mode='scheduled'
-	tacotron_teacher_forcing_start_decay = 20000, #starting point of teacher forcing ratio decay. Relevant if mode='scheduled'
-	tacotron_teacher_forcing_decay_steps = 280000, #Determines the teacher forcing ratio decay slope. Relevant if mode='scheduled'
-	tacotron_teacher_forcing_decay_alpha = 0., #teacher forcing ratio decay rate. Relevant if mode='scheduled'
+	# Tacotron Training
+	# Reproduction seeds
+	tacotron_random_seed=5339,  # Determines initial graph and operations (i.e: model) random state for reproducibility
+	tacotron_data_random_state=1234,  # random state for train test split repeatability
+	
+	# performance parameters
+	tacotron_swap_with_cpu=False,
+	# Whether to use cpu as support to gpu for decoder computation (Not recommended: may cause major slowdowns! Only use when critical!)
+	
+	# train/test split ratios, mini-batches sizes
+	tacotron_batch_size=32,  # number of training samples on each training steps
+	# Tacotron Batch synthesis supports ~16x the training batch size (no gradients during testing).
+	# Training Tacotron with unmasked paddings makes it aware of them, which makes synthesis times different from training. We thus recommend masking the encoder.
+	tacotron_synthesis_batch_size=1,
+	# DO NOT MAKE THIS BIGGER THAN 1 IF YOU DIDN'T TRAIN TACOTRON WITH "mask_encoder=True"!!
+	tacotron_test_size=0.05,
+	# % of data to keep as test data, if None, tacotron_test_batches must be not None. (5% is enough to have a good idea about overfit)
+	tacotron_test_batches=None,  # number of test batches.
+	
+	# Learning rate schedule
+	tacotron_decay_learning_rate=True,  # boolean, determines if the learning rate will follow an exponential decay
+	tacotron_start_decay=40000,  # Step at which learning decay starts
+	tacotron_decay_steps=18000,  # Determines the learning rate decay slope (UNDER TEST)
+	tacotron_decay_rate=0.5,  # learning rate decay rate (UNDER TEST)
+	tacotron_initial_learning_rate=1e-3,  # starting learning rate
+	tacotron_final_learning_rate=1e-4,  # minimal learning rate
+	
+	# Optimization parameters
+	tacotron_adam_beta1=0.9,  # AdamOptimizer beta1 parameter
+	tacotron_adam_beta2=0.999,  # AdamOptimizer beta2 parameter
+	tacotron_adam_epsilon=1e-6,  # AdamOptimizer Epsilon parameter
+	
+	# Regularization parameters
+	tacotron_reg_weight=1e-6,  # regularization weight (for L2 regularization)
+	tacotron_scale_regularization=False,
+	# Whether to rescale regularization weight to adapt for outputs range (used when reg_weight is high and biasing the model)
+	tacotron_zoneout_rate=0.1,  # zoneout rate for all LSTM cells in the network
+	tacotron_dropout_rate=0.5,  # dropout rate for all convolutional layers + prenet
+	tacotron_clip_gradients=True,  # whether to clip gradients
+	
+	# Evaluation parameters
+	tacotron_natural_eval=False,
+	# Whether to use 100% natural eval (to evaluate Curriculum Learning performance) or with same teacher-forcing ratio as in training (just for overfit)
+	
+	# Decoder RNN learning can take be done in one of two ways:
+	#       Teacher Forcing: vanilla teacher forcing (usually with ratio = 1). mode='constant'
+	#       Scheduled Sampling Scheme: From Teacher-Forcing to sampling from previous outputs is function of global step. (teacher forcing ratio decay) mode='scheduled'
+	# The second approach is inspired by:
+	# Bengio et al. 2015: Scheduled Sampling for Sequence Prediction with Recurrent Neural Networks.
+	# Can be found under: https://arxiv.org/pdf/1506.03099.pdf
+	tacotron_teacher_forcing_mode='constant',
+	# Can be ('constant' or 'scheduled'). 'scheduled' mode applies a cosine teacher forcing ratio decay. (Preference: scheduled)
+	tacotron_teacher_forcing_ratio=1.,
+	# Value from [0., 1.], 0.=0%, 1.=100%, determines the % of times we force next decoder inputs, Only relevant if mode='constant'
+	tacotron_teacher_forcing_init_ratio=1.,  # initial teacher forcing ratio. Relevant if mode='scheduled'
+	tacotron_teacher_forcing_final_ratio=0.,
+	# final teacher forcing ratio. (Set None to use alpha instead) Relevant if mode='scheduled'
+	tacotron_teacher_forcing_start_decay=10000,
+	# starting point of teacher forcing ratio decay. Relevant if mode='scheduled'
+	tacotron_teacher_forcing_decay_steps=40000,
+	# Determines the teacher forcing ratio decay slope. Relevant if mode='scheduled'
+	tacotron_teacher_forcing_decay_alpha=None,
+	# teacher forcing ratio decay rate. Defines the final tfr as a ratio of initial tfr. Relevant if mode='scheduled'
 	###########################################################################################################################################
 
 	#Eval sentences (if no eval file was specified, these sentences are used for eval)
@@ -165,7 +213,7 @@ hparams = tf.contrib.training.HParams(
 	# bei3 hai3 dao4 zhu3 yao4 tie3 lu4 yun4 ying2 shang1 biao3 shi4 , yi3 zan4 ting2 bao1 kuo4 xin1 gan4 xian4 zi3 dan4 tou2 lie4 che1 zai4 nei4 de suo3 you3 fu2 wu4 . gai1 gong1 si1 biao3 shi4 , shang4 bu4 que4 ding4 fu2 wu4 he2 shi2 hui1 fu4 .",
 	# ju4 ri4 ben3 guo2 tu3 jiao1 tong1 sheng3 xin1 qian1 sui4 ji1 chang3 shi4 wu4 suo3 xiao1 xi1 , bei3 hai3 dao4 de xin1 qian1 sui4 ji1 chang3 hou4 ji1 lou2 duo1 chu4 qiang2 bi4 shou4 sun3 ,",
 	# wei4 que4 ren4 an1 quan2 jiang1 guan1 bi4 ji1 chang3 da4 lou2 , mu4 qian2 wu2 fa3 que4 ren4 hang2 ban1 ke3 yi3 zheng4 chang2 qi3 jiang4 de shi2 jian1 .",
-        "huan2 qiu2 wang3 bao4 dao4",
+    "huan2 qiu2 wang3 bao4 dao4",
 	"e2 luo2 si1 wei4 xing1 wang3 shi2 yi1 ri4 bao4 dao4 cheng1",
 	"ji4 nian4 di4 yi2 ci4 shi4 jie4 da4 zhan4 jie2 shu4 yi4 bai3 zhou1 nian2 qing4 zhu4 dian3 li3 zai4 ba1 li2 ju3 xing2",
         "e2 luo2 si1 zong3 tong3 pu3 jing1 he2 mei3 guo2 zong3 tong3 te4 lang3 pu3 zai4 ba1 li2 kai3 xuan2 men2 jian4 mian4 shi2 wo4 shou3 zhi4 yi4",

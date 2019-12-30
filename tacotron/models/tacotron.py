@@ -79,6 +79,7 @@ class Tacotron():
 			                scope='decoder_prenet')
 			# Attention Mechanism
 			attention_mechanism = LocationSensitiveAttention(hp.attention_dim, encoder_outputs, hparams=hp,
+			                                                 is_training=is_training,
 			                                                 mask_encoder=hp.mask_encoder,
 			                                                 memory_sequence_length=input_lengths,
 			                                                 smoothing=hp.smoothing,
@@ -103,8 +104,8 @@ class Tacotron():
 			
 			# Define the helper for our decoder
 			if is_training or is_evaluating or gta:
-				self.helper = TacoTrainingHelper(batch_size, mel_targets, stop_token_targets, hp, gta, is_evaluating,
-				                                 global_step)
+				# self.helper = TacoTrainingHelper(batch_size, mel_targets, stop_token_targets, hp, gta, is_evaluating,global_step)
+				self.helper = TacoTrainingHelper(batch_size, mel_targets, hp, gta, is_evaluating, global_step)
 			else:
 				self.helper = TacoTestHelper(batch_size, hp)
 			
@@ -144,8 +145,21 @@ class Tacotron():
 				# Add post-processing CBHG:
 				# post_outputs = post_cbhg(mel_outputs, hp.num_mels, is_training)  # [N, T_out, 256]
 				# linear_outputs = tf.layers.dense(post_outputs, hp.num_freq)
-				post_outputs = post_cbhg(mel_outputs, hp.num_mels, is_training)  # [N, T_out, 256]
-				linear_outputs = tf.layers.dense(post_outputs, hp.num_freq)
+				# post_outputs = post_cbhg(mel_outputs, hp.num_mels, is_training)  # [N, T_out, 256]
+				# linear_outputs = tf.layers.dense(post_outputs, hp.num_freq)
+				# Add post-processing CBHG. This does a great job at extracting features from mels before projection to Linear specs.
+				post_cbhg = CBHG(hp.cbhg_kernels, hp.cbhg_conv_channels, hp.cbhg_pool_size, [hp.cbhg_projection, hp.num_mels],
+					hp.cbhg_projection_kernel_size, hp.cbhg_highwaynet_layers,
+					hp.cbhg_highway_units, hp.cbhg_rnn_units, hp.batch_norm_position, is_training, name='CBHG_postnet')
+
+				#[batch_size, decoder_steps(mel_frames), cbhg_channels]
+				post_outputs = post_cbhg(mel_outputs, None)
+
+				#Linear projection of extracted features to make linear spectrogram
+				linear_specs_projection = FrameProjection(hp.num_freq, scope='cbhg_linear_specs_projection')
+
+				#[batch_size, decoder_steps(linear_frames), num_freq]
+				linear_outputs = linear_specs_projection(post_outputs)
 			
 			# Grab alignments from the final decoder state
 			alignments = tf.transpose(final_decoder_state.alignment_history.stack(), [1, 2, 0])
@@ -165,21 +179,20 @@ class Tacotron():
 			self.mel_targets = mel_targets
 			self.targets_lengths = targets_lengths
 			log('Initialized Tacotron model. Dimensions (? = dynamic shape): ')
-			log('  Train mode:               {}'.format(is_training))
-			log('  Eval mode:                {}'.format(is_evaluating))
-			log('  GTA mode:                 {}'.format(gta))
-			log('  Synthesis mode:           {}'.format(not (is_training or is_evaluating)))
-			log('  embedding:                {}'.format(embedded_inputs.shape))
-			log('  enc conv out:             {}'.format(enc_conv_output_shape))
-			log('  encoder out:              {}'.format(encoder_outputs.shape))
-			log('  decoder out:              {}'.format(decoder_output.shape))
-			log('  residual out:             {}'.format(residual.shape))
+			log('  Train mode:	       {}'.format(is_training))
+			log('  Eval mode:		{}'.format(is_evaluating))
+			log('  GTA mode:		 {}'.format(gta))
+			log('  Synthesis mode:	   {}'.format(not (is_training or is_evaluating)))
+			log('  embedding:		{}'.format(embedded_inputs.shape))
+			log('  enc conv out:	     {}'.format(enc_conv_output_shape))
+			log('  encoder out:	      {}'.format(encoder_outputs.shape))
+			log('  decoder out:	      {}'.format(decoder_output.shape))
+			log('  residual out:	     {}'.format(residual.shape))
 			log('  projected residual out:   {}'.format(projected_residual.shape))
-			log('  mel out:                  {}'.format(mel_outputs.shape))
+			log('  mel out:		  {}'.format(mel_outputs.shape))
 			if post_condition:
-				log('  linear out:               {}'.format(linear_outputs.shape))
-			log('  <stop_token> out:         {}'.format(stop_token_prediction.shape))
-			log('  alignments:               {}'.format(alignments.shape))
+					log('  linear out:	       {}'.format(linear_outputs.shape))
+			log('  <stop_token> out:	 {}'.format(stop_token_prediction.shape))
 
 	def add_loss(self):
 		'''Adds loss to the model. Sets "loss" field. initialize must have been called.'''
@@ -209,7 +222,7 @@ class Tacotron():
 				N = self._hparams.max_text_length
 				T = self._hparams.max_mel_frames
 				A = tf.pad(self.alignments, [(0, 0), (0, N), (0, T)], mode="CONSTANT", constant_values=-1.)[:, :N, :T]
-				gts = tf.convert_to_tensor(guided_attention(N, T))
+				gts = tf.convert_to_tensor(GuidedAttention(N, T))
 				attention_masks = tf.to_float(tf.not_equal(A, -1))
 				attention_loss = tf.reduce_sum(tf.abs(A * gts) * attention_masks)
 				attention_loss /= tf.reduce_sum(attention_masks)
