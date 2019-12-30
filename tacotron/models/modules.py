@@ -1,4 +1,12 @@
 import tensorflow as tf
+import numpy as np
+
+def guided_attention(N, T, g=0.2):
+	W = np.zeros((N, T), dtype=np.float32)
+	for n in range(N):
+		for t in range(T):
+			W[n, t] = 1 - np.exp(-(t / float(T) - n / float(N)) ** 2 / (2 * g * g))
+	return W
 
 
 def conv1d(inputs, kernel_size, channels, activation, is_training, drop_rate, scope):
@@ -12,74 +20,75 @@ def conv1d(inputs, kernel_size, channels, activation, is_training, drop_rate, sc
 		batched = tf.layers.batch_normalization(conv1d_output, training=is_training)
 		activated = activation(batched)
 		return tf.layers.dropout(activated, rate=drop_rate, training=is_training,
-								name='dropout_{}'.format(scope))
+		                         name='dropout_{}'.format(scope))
 
 
 def post_cbhg(inputs, input_dim, is_training):
-  return cbhg(
-    inputs,
-    None,
-    is_training,
-    scope='post_cbhg',
-    K=8,
-    projections=[256, input_dim])
+	return cbhg(
+		inputs,
+		None,
+		is_training,
+		scope='post_cbhg',
+		K=8,
+		projections=[256, input_dim])
+
 
 def cbhg(inputs, input_lengths, is_training, scope, K, projections):
-  with tf.variable_scope(scope):
-    with tf.variable_scope('conv_bank'):
-      # Convolution bank: concatenate on the last axis to stack channels from all convolutions
-      conv_outputs = tf.concat(
-        [conv1d(inputs, k, 128, tf.nn.relu, is_training, 0., 'conv1d_%d' % k) for k in range(1, K+1)],
-        axis=-1
-      )
-
-    # Maxpooling:
-    maxpool_output = tf.layers.max_pooling1d(
-      conv_outputs,
-      pool_size=2,
-      strides=1,
-      padding='same')
-
-    # Two projection layers:
-    proj1_output = conv1d(maxpool_output, 3, projections[0], tf.nn.relu, is_training, 0., 'proj_1')
-    proj2_output = conv1d(proj1_output, 3, projections[1], lambda _: _, is_training, 0., 'proj_2')
-
-    # Residual connection:
-    highway_input = proj2_output + inputs
-
-    # Handle dimensionality mismatch:
-    if highway_input.shape[2] != 128:
-      highway_input = tf.layers.dense(highway_input, 128)
-
-    # 4-layer HighwayNet:
-    for i in range(4):
-      highway_input = highwaynet(highway_input, 'highway_%d' % (i+1))
-    rnn_input = highway_input
-
-    # Bidirectional RNN
-    outputs, states = tf.nn.bidirectional_dynamic_rnn(
-      tf.nn.rnn_cell.GRUCell(128),
-      tf.nn.rnn_cell.GRUCell(128),
-      rnn_input,
-      sequence_length=input_lengths,
-      dtype=tf.float32)
-    return tf.concat(outputs, axis=2)  # Concat forward and backward
+	with tf.variable_scope(scope):
+		with tf.variable_scope('conv_bank'):
+			# Convolution bank: concatenate on the last axis to stack channels from all convolutions
+			conv_outputs = tf.concat(
+				[conv1d(inputs, k, 128, tf.nn.relu, is_training, 0., 'conv1d_%d' % k) for k in range(1, K + 1)],
+				axis=-1
+			)
+		
+		# Maxpooling:
+		maxpool_output = tf.layers.max_pooling1d(
+			conv_outputs,
+			pool_size=2,
+			strides=1,
+			padding='same')
+		
+		# Two projection layers:
+		proj1_output = conv1d(maxpool_output, 3, projections[0], tf.nn.relu, is_training, 0., 'proj_1')
+		proj2_output = conv1d(proj1_output, 3, projections[1], lambda _: _, is_training, 0., 'proj_2')
+		
+		# Residual connection:
+		highway_input = proj2_output + inputs
+		
+		# Handle dimensionality mismatch:
+		if highway_input.shape[2] != 128:
+			highway_input = tf.layers.dense(highway_input, 128)
+		
+		# 4-layer HighwayNet:
+		for i in range(4):
+			highway_input = highwaynet(highway_input, 'highway_%d' % (i + 1))
+		rnn_input = highway_input
+		
+		# Bidirectional RNN
+		outputs, states = tf.nn.bidirectional_dynamic_rnn(
+			tf.nn.rnn_cell.GRUCell(128),
+			tf.nn.rnn_cell.GRUCell(128),
+			rnn_input,
+			sequence_length=input_lengths,
+			dtype=tf.float32)
+		return tf.concat(outputs, axis=2)  # Concat forward and backward
 
 
 def highwaynet(inputs, scope):
-  with tf.variable_scope(scope):
-    H = tf.layers.dense(
-      inputs,
-      units=128,
-      activation=tf.nn.relu,
-      name='H')
-    T = tf.layers.dense(
-      inputs,
-      units=128,
-      activation=tf.nn.sigmoid,
-      name='T',
-      bias_initializer=tf.constant_initializer(-1.0))
-    return H * T + inputs * (1.0 - T)
+	with tf.variable_scope(scope):
+		H = tf.layers.dense(
+			inputs,
+			units=128,
+			activation=tf.nn.relu,
+			name='H')
+		T = tf.layers.dense(
+			inputs,
+			units=128,
+			activation=tf.nn.sigmoid,
+			name='T',
+			bias_initializer=tf.constant_initializer(-1.0))
+		return H * T + inputs * (1.0 - T)
 
 
 class ZoneoutLSTMCell(tf.nn.rnn_cell.RNNCell):
@@ -92,35 +101,37 @@ class ZoneoutLSTMCell(tf.nn.rnn_cell.RNNCell):
 
 	Many thanks to @Ondal90 for pointing this out. You sir are a hero!
 	'''
-	def __init__(self, num_units, is_training, zoneout_factor_cell=0., zoneout_factor_output=0., state_is_tuple=True, name=None):
+	
+	def __init__(self, num_units, is_training, zoneout_factor_cell=0., zoneout_factor_output=0., state_is_tuple=True,
+	             name=None):
 		'''Initializer with possibility to set different zoneout values for cell/hidden states.
 		'''
 		zm = min(zoneout_factor_output, zoneout_factor_cell)
 		zs = max(zoneout_factor_output, zoneout_factor_cell)
-
+		
 		if zm < 0. or zs > 1.:
 			raise ValueError('One/both provided Zoneout factors are not in [0, 1]')
-
+		
 		self._cell = tf.nn.rnn_cell.LSTMCell(num_units, state_is_tuple=state_is_tuple, name=name)
 		self._zoneout_cell = zoneout_factor_cell
 		self._zoneout_outputs = zoneout_factor_output
 		self.is_training = is_training
 		self.state_is_tuple = state_is_tuple
-
+	
 	@property
 	def state_size(self):
 		return self._cell.state_size
-
+	
 	@property
 	def output_size(self):
 		return self._cell.output_size
-
+	
 	def __call__(self, inputs, state, scope=None):
 		'''Runs vanilla LSTM Cell and applies zoneout.
 		'''
-		#Apply vanilla LSTM
+		# Apply vanilla LSTM
 		output, new_state = self._cell(inputs, state, scope)
-
+		
 		if self.state_is_tuple:
 			(prev_c, prev_h) = state
 			(new_c, new_h) = new_state
@@ -130,25 +141,26 @@ class ZoneoutLSTMCell(tf.nn.rnn_cell.RNNCell):
 			prev_h = tf.slice(state, [0, self._cell._num_units], [-1, num_proj])
 			new_c = tf.slice(new_state, [0, 0], [-1, self._cell._num_units])
 			new_h = tf.slice(new_state, [0, self._cell._num_units], [-1, num_proj])
-
-		#Apply zoneout
+		
+		# Apply zoneout
 		if self.is_training:
-			#nn.dropout takes keep_prob (probability to keep activations) not drop_prob (probability to mask activations)!
+			# nn.dropout takes keep_prob (probability to keep activations) not drop_prob (probability to mask activations)!
 			c = (1 - self._zoneout_cell) * tf.nn.dropout(new_c - prev_c, (1 - self._zoneout_cell)) + prev_c
 			h = (1 - self._zoneout_outputs) * tf.nn.dropout(new_h - prev_h, (1 - self._zoneout_outputs)) + prev_h
-
+		
 		else:
 			c = (1 - self._zoneout_cell) * new_c + self._zoneout_cell * prev_c
 			h = (1 - self._zoneout_outputs) * new_h + self._zoneout_outputs * prev_h
-
+		
 		new_state = tf.nn.rnn_cell.LSTMStateTuple(c, h) if self.state_is_tuple else tf.concat(1, [c, h])
-
+		
 		return output, new_state
 
 
 class EncoderConvolutions:
 	"""Encoder convolutional layers used to find local dependencies in inputs characters.
 	"""
+	
 	def __init__(self, is_training, hparams, activation=tf.nn.relu, scope=None):
 		"""
 		Args:
@@ -160,26 +172,27 @@ class EncoderConvolutions:
 		"""
 		super(EncoderConvolutions, self).__init__()
 		self.is_training = is_training
-
+		
 		self.kernel_size = hparams.enc_conv_kernel_size
 		self.channels = hparams.enc_conv_channels
 		self.activation = activation
 		self.scope = 'enc_conv_layers' if scope is None else scope
 		self.drop_rate = hparams.tacotron_dropout_rate
 		self.enc_conv_num_layers = hparams.enc_conv_num_layers
-
+	
 	def __call__(self, inputs):
 		with tf.variable_scope(self.scope):
 			x = inputs
 			for i in range(self.enc_conv_num_layers):
 				x = conv1d(x, self.kernel_size, self.channels, self.activation,
-					self.is_training, self.drop_rate, 'conv_layer_{}_'.format(i + 1)+self.scope)
+				           self.is_training, self.drop_rate, 'conv_layer_{}_'.format(i + 1) + self.scope)
 		return x
 
 
 class EncoderRNN:
 	"""Encoder bidirectional one layer LSTM
 	"""
+	
 	def __init__(self, is_training, size=256, zoneout=0.1, scope=None):
 		"""
 		Args:
@@ -190,23 +203,23 @@ class EncoderRNN:
 		"""
 		super(EncoderRNN, self).__init__()
 		self.is_training = is_training
-
+		
 		self.size = size
 		self.zoneout = zoneout
 		self.scope = 'encoder_LSTM' if scope is None else scope
-
-		#Create forward LSTM Cell
+		
+		# Create forward LSTM Cell
 		self._fw_cell = ZoneoutLSTMCell(size, is_training,
-			zoneout_factor_cell=zoneout,
-			zoneout_factor_output=zoneout,
-			name='encoder_fw_LSTM')
-
-		#Create backward LSTM Cell
+		                                zoneout_factor_cell=zoneout,
+		                                zoneout_factor_output=zoneout,
+		                                name='encoder_fw_LSTM')
+		
+		# Create backward LSTM Cell
 		self._bw_cell = ZoneoutLSTMCell(size, is_training,
-			zoneout_factor_cell=zoneout,
-			zoneout_factor_output=zoneout,
-			name='encoder_bw_LSTM')
-
+		                                zoneout_factor_cell=zoneout,
+		                                zoneout_factor_output=zoneout,
+		                                name='encoder_bw_LSTM')
+	
 	def __call__(self, inputs, input_lengths):
 		with tf.variable_scope(self.scope):
 			outputs, (fw_state, bw_state) = tf.nn.bidirectional_dynamic_rnn(
@@ -216,13 +229,14 @@ class EncoderRNN:
 				sequence_length=input_lengths,
 				dtype=tf.float32,
 				swap_memory=True)
-
-			return tf.concat(outputs, axis=2) # Concat and return forward + backward outputs
+			
+			return tf.concat(outputs, axis=2)  # Concat and return forward + backward outputs
 
 
 class Prenet:
 	"""Two fully connected layers used as an information bottleneck for the attention.
 	"""
+	
 	def __init__(self, is_training, layers_sizes=[256, 256], drop_rate=0.5, activation=tf.nn.relu, scope=None):
 		"""
 		Args:
@@ -233,30 +247,31 @@ class Prenet:
 		"""
 		super(Prenet, self).__init__()
 		self.drop_rate = drop_rate
-
+		
 		self.layers_sizes = layers_sizes
 		self.activation = activation
 		self.is_training = is_training
-
+		
 		self.scope = 'prenet' if scope is None else scope
-
+	
 	def __call__(self, inputs):
 		x = inputs
-
+		
 		with tf.variable_scope(self.scope):
 			for i, size in enumerate(self.layers_sizes):
 				dense = tf.layers.dense(x, units=size, activation=self.activation,
-					name='dense_{}'.format(i + 1))
-				#The paper discussed introducing diversity in generation at inference time
-				#by using a dropout of 0.5 only in prenet layers (in both training and inference).
+				                        name='dense_{}'.format(i + 1))
+				# The paper discussed introducing diversity in generation at inference time
+				# by using a dropout of 0.5 only in prenet layers (in both training and inference).
 				x = tf.layers.dropout(dense, rate=self.drop_rate, training=True,
-					name='dropout_{}'.format(i + 1) + self.scope)
+				                      name='dropout_{}'.format(i + 1) + self.scope)
 		return x
 
 
 class DecoderRNN:
 	"""Decoder two uni directional LSTM Cells
 	"""
+	
 	def __init__(self, is_training, layers=2, size=1024, zoneout=0.1, scope=None):
 		"""
 		Args:
@@ -267,20 +282,20 @@ class DecoderRNN:
 		"""
 		super(DecoderRNN, self).__init__()
 		self.is_training = is_training
-
+		
 		self.layers = layers
 		self.size = size
 		self.zoneout = zoneout
 		self.scope = 'decoder_rnn' if scope is None else scope
-
-		#Create a set of LSTM layers
+		
+		# Create a set of LSTM layers
 		self.rnn_layers = [ZoneoutLSTMCell(size, is_training,
-			zoneout_factor_cell=zoneout,
-			zoneout_factor_output=zoneout,
-			name='decoder_LSTM_{}'.format(i+1)) for i in range(layers)]
-
+		                                   zoneout_factor_cell=zoneout,
+		                                   zoneout_factor_output=zoneout,
+		                                   name='decoder_LSTM_{}'.format(i + 1)) for i in range(layers)]
+		
 		self._cell = tf.contrib.rnn.MultiRNNCell(self.rnn_layers, state_is_tuple=True)
-
+	
 	def __call__(self, inputs, states):
 		with tf.variable_scope(self.scope):
 			return self._cell(inputs, states)
@@ -289,6 +304,7 @@ class DecoderRNN:
 class FrameProjection:
 	"""Projection layer to r * num_mels dimensions or num_mels dimensions
 	"""
+	
 	def __init__(self, shape=80, activation=None, scope=None):
 		"""
 		Args:
@@ -297,27 +313,28 @@ class FrameProjection:
 			scope: FrameProjection scope.
 		"""
 		super(FrameProjection, self).__init__()
-
+		
 		self.shape = shape
 		self.activation = activation
-
+		
 		self.scope = 'Linear_projection' if scope is None else scope
 		self.dense = tf.layers.Dense(units=shape, activation=activation, name='projection_{}'.format(self.scope))
-
+	
 	def __call__(self, inputs):
 		with tf.variable_scope(self.scope):
-			#If activation==None, this returns a simple Linear projection
-			#else the projection will be passed through an activation function
+			# If activation==None, this returns a simple Linear projection
+			# else the projection will be passed through an activation function
 			# output = tf.layers.dense(inputs, units=self.shape, activation=self.activation,
 			# 	name='projection_{}'.format(self.scope))
 			output = self.dense(inputs)
-
+			
 			return output
 
 
 class StopProjection:
 	"""Projection to a scalar and through a sigmoid activation
 	"""
+	
 	def __init__(self, is_training, shape=1, activation=tf.nn.sigmoid, scope=None):
 		"""
 		Args:
@@ -329,17 +346,17 @@ class StopProjection:
 		"""
 		super(StopProjection, self).__init__()
 		self.is_training = is_training
-
+		
 		self.shape = shape
 		self.activation = activation
 		self.scope = 'stop_token_projection' if scope is None else scope
-
+	
 	def __call__(self, inputs):
 		with tf.variable_scope(self.scope):
 			output = tf.layers.dense(inputs, units=self.shape,
-				activation=None, name='projection_{}'.format(self.scope))
-
-			#During training, don't use activation as it is integrated inside the sigmoid_cross_entropy loss function
+			                         activation=None, name='projection_{}'.format(self.scope))
+			
+			# During training, don't use activation as it is integrated inside the sigmoid_cross_entropy loss function
 			if self.is_training:
 				return output
 			return self.activation(output)
@@ -348,6 +365,7 @@ class StopProjection:
 class Postnet:
 	"""Postnet that takes final decoder output and fine tunes it (using vision on past and future frames)
 	"""
+	
 	def __init__(self, is_training, hparams, activation=tf.nn.tanh, scope=None):
 		"""
 		Args:
@@ -359,33 +377,35 @@ class Postnet:
 		"""
 		super(Postnet, self).__init__()
 		self.is_training = is_training
-
+		
 		self.kernel_size = hparams.postnet_kernel_size
 		self.channels = hparams.postnet_channels
 		self.activation = activation
 		self.scope = 'postnet_convolutions' if scope is None else scope
 		self.postnet_num_layers = hparams.postnet_num_layers
 		self.drop_rate = hparams.tacotron_dropout_rate
-
+	
 	def __call__(self, inputs):
 		with tf.variable_scope(self.scope):
 			x = inputs
 			for i in range(self.postnet_num_layers - 1):
 				x = conv1d(x, self.kernel_size, self.channels, self.activation,
-					self.is_training, self.drop_rate, 'conv_layer_{}_'.format(i + 1)+self.scope)
+				           self.is_training, self.drop_rate, 'conv_layer_{}_'.format(i + 1) + self.scope)
 			x = conv1d(x, self.kernel_size, self.channels, lambda _: _, self.is_training, self.drop_rate,
-				'conv_layer_{}_'.format(5)+self.scope)
+			           'conv_layer_{}_'.format(5) + self.scope)
 		return x
+
 
 def _round_up_tf(x, multiple):
 	# Tf version of remainder = x % multiple
 	remainder = tf.mod(x, multiple)
 	# Tf version of return x if remainder == 0 else x + multiple - remainder
-	x_round =  tf.cond(tf.equal(remainder, tf.zeros(tf.shape(remainder), dtype=tf.int32)),
-		lambda: x,
-		lambda: x + multiple - remainder)
-
+	x_round = tf.cond(tf.equal(remainder, tf.zeros(tf.shape(remainder), dtype=tf.int32)),
+	                  lambda: x,
+	                  lambda: x + multiple - remainder)
+	
 	return x_round
+
 
 def sequence_mask(lengths, r, expand=True):
 	'''Returns a 2-D or 3-D tensorflow sequence mask depending on the argument 'expand'
@@ -396,77 +416,81 @@ def sequence_mask(lengths, r, expand=True):
 		return tf.expand_dims(tf.sequence_mask(lengths, maxlen=max_len, dtype=tf.float32), axis=-1)
 	return tf.sequence_mask(lengths, maxlen=max_len, dtype=tf.float32)
 
+
 def MaskedMSE(targets, outputs, targets_lengths, hparams, mask=None):
 	'''Computes a masked Mean Squared Error
 	'''
-
-	#[batch_size, time_dimension, 1]
-	#example:
-	#sequence_mask([1, 3, 2], 5) = [[[1., 0., 0., 0., 0.]],
+	
+	# [batch_size, time_dimension, 1]
+	# example:
+	# sequence_mask([1, 3, 2], 5) = [[[1., 0., 0., 0., 0.]],
 	#							    [[1., 1., 1., 0., 0.]],
 	#							    [[1., 1., 0., 0., 0.]]]
-	#Note the maxlen argument that ensures mask shape is compatible with r>1
-	#This will by default mask the extra paddings caused by r>1
+	# Note the maxlen argument that ensures mask shape is compatible with r>1
+	# This will by default mask the extra paddings caused by r>1
 	if mask is None:
 		mask = sequence_mask(targets_lengths, hparams.outputs_per_step, True)
-
-	#[batch_size, time_dimension, channel_dimension(mels)]
+	
+	# [batch_size, time_dimension, channel_dimension(mels)]
 	ones = tf.ones(shape=[tf.shape(mask)[0], tf.shape(mask)[1], tf.shape(targets)[-1]], dtype=tf.float32)
 	mask_ = mask * ones
-
+	
 	with tf.control_dependencies([tf.assert_equal(tf.shape(targets), tf.shape(mask_))]):
 		return tf.losses.mean_squared_error(labels=targets, predictions=outputs, weights=mask_)
+
 
 def MaskedSigmoidCrossEntropy(targets, outputs, targets_lengths, hparams, mask=None):
 	'''Computes a masked SigmoidCrossEntropy with logits
 	'''
-
-	#[batch_size, time_dimension]
-	#example:
-	#sequence_mask([1, 3, 2], 5) = [[1., 0., 0., 0., 0.],
+	
+	# [batch_size, time_dimension]
+	# example:
+	# sequence_mask([1, 3, 2], 5) = [[1., 0., 0., 0., 0.],
 	#							    [1., 1., 1., 0., 0.],
 	#							    [1., 1., 0., 0., 0.]]
-	#Note the maxlen argument that ensures mask shape is compatible with r>1
-	#This will by default mask the extra paddings caused by r>1
+	# Note the maxlen argument that ensures mask shape is compatible with r>1
+	# This will by default mask the extra paddings caused by r>1
 	if mask is None:
 		mask = sequence_mask(targets_lengths, hparams.outputs_per_step, False)
-
+	
 	with tf.control_dependencies([tf.assert_equal(tf.shape(targets), tf.shape(mask))]):
-		#Use a weighted sigmoid cross entropy to measure the <stop_token> loss. Set hparams.cross_entropy_pos_weight to 1
-		#will have the same effect as  vanilla tf.nn.sigmoid_cross_entropy_with_logits.
-		losses = tf.nn.weighted_cross_entropy_with_logits(targets=targets, logits=outputs, pos_weight=hparams.cross_entropy_pos_weight)
-
+		# Use a weighted sigmoid cross entropy to measure the <stop_token> loss. Set hparams.cross_entropy_pos_weight to 1
+		# will have the same effect as  vanilla tf.nn.sigmoid_cross_entropy_with_logits.
+		losses = tf.nn.weighted_cross_entropy_with_logits(targets=targets, logits=outputs,
+		                                                  pos_weight=hparams.cross_entropy_pos_weight)
+	
 	with tf.control_dependencies([tf.assert_equal(tf.shape(mask), tf.shape(losses))]):
 		masked_loss = losses * mask
-
+	
 	return tf.reduce_sum(masked_loss) / tf.count_nonzero(masked_loss, dtype=tf.float32)
+
 
 def MaskedLinearLoss(targets, outputs, targets_lengths, hparams, mask=None):
 	'''Computes a masked MAE loss with priority to low frequencies
 	'''
-
-	#[batch_size, time_dimension, 1]
-	#example:
-	#sequence_mask([1, 3, 2], 5) = [[[1., 0., 0., 0., 0.]],
+	
+	# [batch_size, time_dimension, 1]
+	# example:
+	# sequence_mask([1, 3, 2], 5) = [[[1., 0., 0., 0., 0.]],
 	#							    [[1., 1., 1., 0., 0.]],
 	#							    [[1., 1., 0., 0., 0.]]]
-	#Note the maxlen argument that ensures mask shape is compatible with r>1
-	#This will by default mask the extra paddings caused by r>1
+	# Note the maxlen argument that ensures mask shape is compatible with r>1
+	# This will by default mask the extra paddings caused by r>1
 	if mask is None:
 		mask = sequence_mask(targets_lengths, hparams.outputs_per_step, True)
-
-	#[batch_size, time_dimension, channel_dimension(freq)]
+	
+	# [batch_size, time_dimension, channel_dimension(freq)]
 	ones = tf.ones(shape=[tf.shape(mask)[0], tf.shape(mask)[1], tf.shape(targets)[-1]], dtype=tf.float32)
 	mask_ = mask * ones
-
+	
 	l1 = tf.abs(targets - outputs)
 	n_priority_freq = int(2000 / (hparams.sample_rate * 0.5) * hparams.num_freq)
-
+	
 	with tf.control_dependencies([tf.assert_equal(tf.shape(targets), tf.shape(mask_))]):
 		masked_l1 = l1 * mask_
-		masked_l1_low = masked_l1[:,:,0:n_priority_freq]
-
+		masked_l1_low = masked_l1[:, :, 0:n_priority_freq]
+	
 	mean_l1 = tf.reduce_sum(masked_l1) / tf.reduce_sum(mask_)
 	mean_l1_low = tf.reduce_sum(masked_l1_low) / tf.reduce_sum(mask_)
-
+	
 	return 0.5 * mean_l1 + 0.5 * mean_l1_low

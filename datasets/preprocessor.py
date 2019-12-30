@@ -98,7 +98,8 @@ def _process_utterance(mel_dir, linear_dir, wav_dir, index, wav_path, text, hpar
 	mel_spectrogram = audio.melspectrogram(wav, hparams).astype(np.float32)
 	mel_frames = mel_spectrogram.shape[1]
 
-	if mel_frames > hparams.max_mel_frames and hparams.clip_mels_length:
+	# if mel_frames > hparams.max_mel_frames and hparams.clip_mels_length:
+	if mel_frames > hparams.max_mel_frames or len(text) > hparams.max_text_length:
 		return None
 
 	#Compute the linear scale spectrogram from the wav
