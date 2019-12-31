@@ -64,6 +64,7 @@ def run_eval(args, checkpoint_path, output_dir, hparams, sentences):
 	#
 	# 		file.write('{}|{}|{}\n'.format(text, mel_filename[0], speaker_id[0]))
 	# log('synthesized mel spectrograms at {}'.format(eval_dir))
+	sentences = list(map(lambda s: s.strip(), sentences))
 	delta_size = hparams.tacotron_synthesis_batch_size if hparams.tacotron_synthesis_batch_size < len(
 		sentences) else len(sentences)
 	batch_sentences = [sentences[i: i + hparams.tacotron_synthesis_batch_size] for i in range(0, len(sentences), delta_size)]
