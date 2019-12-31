@@ -25,8 +25,8 @@ hparams = tf.contrib.training.HParams(
 	# Use LWS (https://github.com/Jonathan-LeRoux/lws) for STFT and phase reconstruction
 	# It's preferred to set True to use with https://github.com/r9y9/wavenet_vocoder
 	# Does not work if n_ffit is not multiple of hop_size!!
-	use_lws=False,
-	silence_threshold=2, #silence threshold used for sound trimming for wavenet preprocessing
+	# use_lws=False,
+	# silence_threshold=2, #silence threshold used for sound trimming for wavenet preprocessing
 
 	#Mel spectrogram
 	n_fft = 4096, #Extra window size is filled with 0 paddings to match this parameter
@@ -99,16 +99,16 @@ hparams = tf.contrib.training.HParams(
 	# mask_decoder = False, #Whether to use loss mask for padded sequences (if False, <stop_token> loss function will not be weighted, else recommended pos_weight = 20)
 	
 	# CBHG mel->linear postnet
-	cbhg_kernels=8,
-	# All kernel sizes from 1 to cbhg_kernels will be used in the convolution bank of CBHG to act as "K-grams"
-	cbhg_conv_channels=128,  # Channels of the convolution bank
-	cbhg_pool_size=2,  # pooling size of the CBHG
-	cbhg_projection=256,  # projection channels of the CBHG (1st projection, 2nd is automatically set to num_mels)
-	cbhg_projection_kernel_size=3,  # kernel_size of the CBHG projections
-	cbhg_highwaynet_layers=4,  # Number of HighwayNet layers
-	cbhg_highway_units=128,  # Number of units used in HighwayNet fully connected layers
-	cbhg_rnn_units=128,
-	# Number of GRU units used in bidirectional RNN of CBHG block. CBHG output is 2x rnn_units in shape
+	# cbhg_kernels=8,
+	# # All kernel sizes from 1 to cbhg_kernels will be used in the convolution bank of CBHG to act as "K-grams"
+	# cbhg_conv_channels=128,  # Channels of the convolution bank
+	# cbhg_pool_size=2,  # pooling size of the CBHG
+	# cbhg_projection=256,  # projection channels of the CBHG (1st projection, 2nd is automatically set to num_mels)
+	# cbhg_projection_kernel_size=3,  # kernel_size of the CBHG projections
+	# cbhg_highwaynet_layers=4,  # Number of HighwayNet layers
+	# cbhg_highway_units=128,  # Number of units used in HighwayNet fully connected layers
+	# cbhg_rnn_units=128,
+	# # Number of GRU units used in bidirectional RNN of CBHG block. CBHG output is 2x rnn_units in shape
 	
 	# cross_entropy_pos_weight = 1, #Use class weights to reduce the stop token classes imbalance (by adding more penalty on False Negatives (FN)) (1 = disabled)
 	# predict_linear = True, #Whether to add a post-processing network to the Tacotron to predict linear spectrograms (True mode Not tested!!)

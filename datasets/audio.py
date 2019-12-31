@@ -20,8 +20,8 @@ def save_wav(wav, path, hparams):
 	#proposed by @dsmiller
 	wavfile.write(path, hparams.sample_rate, wav.astype(np.int16))
 
-def save_wavenet_wav(wav, path, sr):
-	librosa.output.write_wav(path, wav, sr=sr)
+# def save_wavenet_wav(wav, path, sr):
+# 	librosa.output.write_wav(path, wav, sr=sr)
 
 def preemphasis(wav, k):
 	return signal.lfilter([1, -k], [1], wav)
@@ -83,13 +83,14 @@ def inv_linear_spectrogram(linear_spectrogram, hparams):
 
 	S = _db_to_amp(D + hparams.ref_level_db) #Convert back to linear
 
-	if hparams.use_lws:
-		processor = _lws_processor(hparams)
-		D = processor.run_lws(S.astype(np.float64).T ** hparams.power)
-		y = processor.istft(D).astype(np.float32)
-		return inv_preemphasis(y, hparams.preemphasis)
-	else:
-		return inv_preemphasis(_griffin_lim(S ** hparams.power, hparams), hparams.preemphasis)
+	# if hparams.use_lws:
+	# 	processor = _lws_processor(hparams)
+	# 	D = processor.run_lws(S.astype(np.float64).T ** hparams.power)
+	# 	y = processor.istft(D).astype(np.float32)
+	# 	return inv_preemphasis(y, hparams.preemphasis)
+	# else:
+	# 	return inv_preemphasis(_griffin_lim(S ** hparams.power, hparams), hparams.preemphasis)
+	return inv_preemphasis(_griffin_lim(S ** hparams.power, hparams), hparams.preemphasis)
 
 def inv_mel_spectrogram(mel_spectrogram, hparams):
 	'''Converts mel spectrogram to waveform using librosa'''
@@ -135,9 +136,9 @@ def inv_mel_spectrogram_tensorflow(mel_spectrogram, hparams):
 	S = _mel_to_linear(S, hparams)  # Convert back to linear
 	return _griffin_lim_tensorflow(S ** hparams.power, hparams)
 
-def _lws_processor(hparams):
-	import lws
-	return lws.lws(hparams.n_fft, get_hop_size(hparams), fftsize=hparams.win_size, mode="speech")
+# def _lws_processor(hparams):
+# 	import lws
+# 	return lws.lws(hparams.n_fft, get_hop_size(hparams), fftsize=hparams.win_size, mode="speech")
 
 def _griffin_lim(S, hparams):
 	'''librosa implementation of Griffin-Lim
@@ -167,11 +168,11 @@ def _griffin_lim_tensorflow(S, hparams):
 	return tf.squeeze(y, 0)
 
 def _stft(y, hparams):
-	if hparams.use_lws:
-		return _lws_processor(hparams).stft(y).T
-	else:
-		return librosa.stft(y=y, n_fft=hparams.n_fft, hop_length=get_hop_size(hparams), win_length=hparams.win_size)
-
+	# if hparams.use_lws:
+	# 	return _lws_processor(hparams).stft(y).T
+	# else:
+	# 	return librosa.stft(y=y, n_fft=hparams.n_fft, hop_length=get_hop_size(hparams), win_length=hparams.win_size)
+	return librosa.stft(y=y, n_fft=hparams.n_fft, hop_length=get_hop_size(hparams), win_length=hparams.win_size)
 def _istft(y, hparams):
 	return librosa.istft(y, hop_length=get_hop_size(hparams), win_length=hparams.win_size)
 
