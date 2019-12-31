@@ -70,8 +70,7 @@ class CBHG:
 				# The convolution bank uses multiple different kernel sizes to have many insights of the input sequence
 				# This makes one of the strengths of the CBHG block on sequences.
 				conv_outputs = tf.concat(
-					[conv1d(inputs, k, self.conv_channels, tf.nn.relu, self.is_training, 0., self.bnorm,
-					        'conv1d_{}'.format(k)) for k in range(1, self.K + 1)],
+					[conv1d(inputs, k, self.conv_channels, tf.nn.relu, self.is_training, self.bnorm,'conv1d_{}'.format(k)) for k in range(1, self.K + 1)],
 					axis=-1
 				)
 			
@@ -83,10 +82,8 @@ class CBHG:
 				padding='same')
 			
 			# Two projection layers
-			proj1_output = conv1d(maxpool_output, self.projection_kernel_size, self.projections[0], tf.nn.relu,
-			                      self.is_training, 0., self.bnorm, 'proj1')
-			proj2_output = conv1d(proj1_output, self.projection_kernel_size, self.projections[1], lambda _: _,
-			                      self.is_training, 0., self.bnorm, 'proj2')
+			proj1_output = conv1d(maxpool_output, self.projection_kernel_size, self.projections[0], tf.nn.relu,self.is_training, self.bnorm, 'proj1')
+			proj2_output = conv1d(proj1_output, self.projection_kernel_size, self.projections[1], lambda _: _,self.is_training, self.bnorm, 'proj2')
 			
 			# Residual connection
 			highway_input = proj2_output + inputs
@@ -274,7 +271,7 @@ class EncoderConvolutions:
 			for i in range(self.enc_conv_num_layers):
 				x = conv1d(x, self.kernel_size, self.channels, self.activation,
 				           # self.is_training, self.drop_rate, 'conv_layer_{}_'.format(i + 1) + self.scope)
-				           self.is_training, self.drop_rate, self.bnorm, 'conv_layer_{}_'.format(i + 1) + self.scope)
+				           self.is_training, self.bnorm, 'conv_layer_{}_'.format(i + 1) + self.scope)
 		return x
 
 
@@ -480,11 +477,11 @@ class Postnet:
 			x = inputs
 			for i in range(self.postnet_num_layers - 1):
 				x = conv1d(x, self.kernel_size, self.channels, self.activation,
-				           self.is_training, self.drop_rate, self.bnorm, 'conv_layer_{}_'.format(i + 1) + self.scope)
-			x = conv1d(x, self.kernel_size, self.channels, lambda _: _, self.is_training, self.drop_rate,self.bnorm,'conv_layer_{}_'.format(5) + self.scope)
+				           self.is_training, self.bnorm, 'conv_layer_{}_'.format(i + 1) + self.scope)
+			x = conv1d(x, self.kernel_size, self.channels, lambda _: _, self.is_training, self.bnorm,'conv_layer_{}_'.format(5)+self.scope)
 		return x
-
-def conv1d(inputs, kernel_size, channels, activation, is_training, drop_rate, bnorm, scope):
+	
+def conv1d(inputs, kernel_size, channels, activation, is_training, bnorm, scope):
 	assert bnorm in ('before', 'after')
 	with tf.variable_scope(scope):
 		conv1d_output = tf.layers.conv1d(
@@ -495,8 +492,7 @@ def conv1d(inputs, kernel_size, channels, activation, is_training, drop_rate, bn
 			padding='same')
 		batched = tf.layers.batch_normalization(conv1d_output, training=is_training)
 		activated = activation(batched) if bnorm == 'before' else batched
-		return tf.layers.dropout(activated, rate=drop_rate, training=is_training,
-								name='dropout_{}'.format(scope))
+		return activation(batched) if bnorm == 'before' else batched
 
 
 def _round_up_tf(x, multiple):
