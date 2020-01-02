@@ -62,12 +62,10 @@ def run_eval(args, checkpoint_path, output_dir, hparams, sentences):
 	batch_sentences = [sentences[i: i+hparams.tacotron_synthesis_batch_size] for i in range(0, len(sentences), delta_size)]
 	start = time.time()
 	for i, batch in enumerate(tqdm(batch_sentences)):
-		# synth.eval(batch, log_dir)
 		mel_filename = os.path.join(eval_dir, '{:03d}.npy'.format(i))
 		mel = synth.eval(batch)
-		np.save(mel_filename, mel.T, allow_pickle=False)
-		wav = audio.inv_mel_spectrogram(mel.T, hparams)
-		audio.save_wav(wav, os.path.join(eval_dir, '{:03d}.wav'.format(i)), hparams)
+		mel.reshape((-1,)).tofile(os.path.join(eval_dir, '{:03d}.f32'.format(i)))
+
 	log('\nGenerated total batch of {} in {:.3f} sec'.format(delta_size, time.time() - start))
 
 	return eval_dir
@@ -105,7 +103,6 @@ def run_synthesis(args, checkpoint_path, output_dir, hparams):
 		for i, meta in enumerate(tqdm(metadata)):
 			texts = [m[3] for m in meta]
 			mel_filenames = [os.path.join(mel_dir, m[0]) for m in meta]
-			# wav_filenames = [os.path.join(wav_dir, m[0]) for m in meta]
 			basenames = [os.path.basename(m).replace('.npy', '').replace('mel-', '') for m in mel_filenames]
 			mel_output_filenames, speaker_ids = synth.synthesize(texts, basenames, synth_dir, None, mel_filenames)
 

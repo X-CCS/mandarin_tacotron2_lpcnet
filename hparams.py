@@ -13,14 +13,14 @@ hparams = tf.contrib.training.HParams(
 	###########################################################################################################################################
 
 	#Audio
-	num_mels = 80, #Number of mel-spectrogram channels and local conditioning dimensionality
+	num_mels = 55, #Number of mel-spectrogram channels and local conditioning dimensionality
 	num_freq = 2049, # (= n_fft / 2 + 1) only used when adding linear spectrograms post processing network
 	rescale = False, #Whether to rescale audio prior to preprocessing
 	rescaling_max = 0.999, #Rescaling value
 	trim_silence = True, #Whether to clip silence in Audio (at beginning and end of audio only, not the middle)
 	clip_mels_length = True, #For cases of OOM (Not really recommended, working on a workaround)
-	max_mel_frames = 600,  #Only relevant when clip_mels_length = True
-    max_text_length = 150,  #Only relevant when clip_mels_length = True
+	max_mel_frames = 1000,  #Only relevant when clip_mels_length = True
+    max_text_length = 650,  #Only relevant when clip_mels_length = True
 
 	# Use LWS (https://github.com/Jonathan-LeRoux/lws) for STFT and phase reconstruction
 	# It's preferred to set True to use with https://github.com/r9y9/wavenet_vocoder
@@ -29,9 +29,9 @@ hparams = tf.contrib.training.HParams(
 	# silence_threshold=2, #silence threshold used for sound trimming for wavenet preprocessing
 
 	#Mel spectrogram
-	n_fft = 4096, #Extra window size is filled with 0 paddings to match this parameter
-	hop_size = 600, #For 22050Hz, 275 ~= 12.5 ms
-	win_size = 2400, #For 22050Hz, 1100 ~= 50 ms (If None, win_size = n_fft)
+	n_fft = 1024, #Extra window size is filled with 0 paddings to match this parameter
+	hop_size = 256, #For 22050Hz, 275 ~= 12.5 ms
+	win_size = 1024, #For 22050Hz, 1100 ~= 50 ms (If None, win_size = n_fft)
 	sample_rate = 48000, #22050 Hz (corresponding to ljspeech dataset)
 	frame_shift_ms = None,
 	preemphasis = 0.97, # preemphasis coefficient
@@ -132,7 +132,7 @@ hparams = tf.contrib.training.HParams(
 	# Whether to use cpu as support to gpu for decoder computation (Not recommended: may cause major slowdowns! Only use when critical!)
 	
 	# train/test split ratios, mini-batches sizes
-	tacotron_batch_size=32,  # number of training samples on each training steps
+	tacotron_batch_size=40,  # number of training samples on each training steps
 	# Tacotron Batch synthesis supports ~16x the training batch size (no gradients during testing).
 	# Training Tacotron with unmasked paddings makes it aware of them, which makes synthesis times different from training. We thus recommend masking the encoder.
 	tacotron_synthesis_batch_size=1,
