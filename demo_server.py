@@ -3,16 +3,18 @@ import chardet
 import thriftpy
 import falcon
 import tensorflow as tf
+import numpy as np
 import io
 import re
 import os
+import json
+import urllib
 from datasets import audio
 from mainstay import Mainstay
 from hparams import hparams
 from infolog import log
 from tacotron.synthesizer import Synthesizer
 from wsgiref import simple_server
-# import argparse
 from pypinyin import pinyin, lazy_pinyin, Style
 
 
@@ -41,79 +43,31 @@ q('#text').focus()
 q('#button').addEventListener('click', function(e) {
   text = q('#text').value.trim()
   if (text) {
-	    q('#message').textContent = '合成中...'
-	    q('#button').disabled = true
-	    q('#audio').hidden = true
-	    synthesize(text)
+	q('#message').textContent = '合成中...'
+	q('#button').disabled = true
+	q('#audio').hidden = true
+	synthesize(text)
   }
   e.preventDefault()
   return false
 })
 function synthesize(text) {
   fetch('/synthesize?text=' + encodeURIComponent(text), {cache: 'no-cache'})
-	    .then(function(res) {
-	      if (!res.ok) throw Error(res.statusText)
-	      return res.blob()
-	    }).then(function(blob) {
-	      q('#message').textContent = ''
-	      q('#button').disabled = false
-	      q('#audio').src = URL.createObjectURL(blob)
-	      q('#audio').hidden = false
-	    }).catch(function(err) {
-	      q('#message').textContent = '出错: ' + err.message
-	      q('#button').disabled = false
-	    })
+	.then(function(res) {
+	  if (!res.ok) throw Error(res.statusText)
+	  return res.blob()
+	}).then(function(blob) {
+	  q('#message').textContent = ''
+	  q('#button').disabled = false
+	  q('#audio').src = URL.createObjectURL(blob)
+	  q('#audio').hidden = false
+	}).catch(function(err) {
+	  q('#message').textContent = '出错: ' + err.message
+	  q('#button').disabled = false
+	})
 }
 </script></body></html>
 '''
-
-def p(input):
-	str = ""
-	arr = pinyin(input, style=Style.TONE3)
-	for i in arr:
-		str += i[0] + " "
-	return str
-
-def chs_pinyin(text):
-	pys = pinyin(text, style=Style.TONE3)
-	results = []
-	sentence = []
-	for i in range(len(pys)):
-		if pys[i][0][0] == "，" or pys[i][0][0] == "、" or pys[i][0][0] == '·':
-			pys[i][0] = ','
-		elif pys[i][0][0] == '。' or pys[i][0][0] == "…":
-			pys[i][0] = '.'
-		elif pys[i][0][0] == '―' or pys[i][0][0] == "――" or pys[i][0][0] == '—' or pys[i][0][0] == '——':
-			pys[i][0] = ','
-		elif pys[i][0][0] == "；":
-			pys[i][0] = ';'
-		elif pys[i][0][0] == "：":
-			pys[i][0] = ':'
-		elif pys[i][0][0] == "？":
-			pys[i][0] = '?'
-		elif pys[i][0][0] == "！":
-			pys[i][0] = '!'
-		elif pys[i][0][0] == "《" or pys[i][0][0] == '》' or pys[i][0][0] == '（' or pys[i][0][0] == '）':
-			continue
-		elif pys[i][0][0] == '“' or pys[i][0][0] == '”' or pys[i][0][0] == '‘' or pys[i][0][0] == '’' or pys[i][0][0] == '＂':
-			continue
-		elif pys[i][0][0] == '(' or pys[i][0][0] == ')' or pys[i][0][0] == '"' or pys[i][0][0] == '\'':
-			continue
-		elif pys[i][0][0] == ' ' or pys[i][0][0] == '/' or pys[i][0][0] == '<' or pys[i][0][0] == '>' or pys[i][0][0] == '「' or pys[i][0][0] == '」':
-			continue
-
-		sentence.append(pys[i][0])
-		if pys[i][0] in ",.;?!:":
-			results.append(' '.join(sentence))
-			sentence = []
-
-	if len(sentence) > 0:
-		results.append(' '.join(sentence))
-
-	for i, res in enumerate(results):
-		print(res)
-
-	return results
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--checkpoint', default='pretrained/', help='Path to model checkpoint')
@@ -144,18 +98,64 @@ class Syn:
 	def on_get(self,req,res):
 		if not req.params.get('text'):
 			raise falcon.HTTPBadRequest()
-		# log('Synthesize {}'.format(p(req.params.get('text'))))
-		# res.data = synth.eval(p(req.params.get('text')))
-		# res.content_type = "audio/wav"
-		chs = req.params.get('text')
-		print(chs.encode("utf-8").decode("utf-8"))
-		pys = chs_pinyin(chs)
+		orig_chs = req.params.get('text')
+		norm_chs = chs_norm(orig_chs)
+		print(norm_chs.encode("utf-8").decode("utf-8"))
+		pys = chs_pinyin(norm_chs)
 		out = io.BytesIO()
-		evals = synth.eval(pys)
-		audio.save_wav(evals, out, hparams)
+		wav = synth.eval(pys)
+		audio.save_wav(wav, out, hparams)
 		res.data = out.getvalue()
 		res.content_type = "audio/wav"
-		
+
+def chs_pinyin(text):
+	pys = pinyin(text, style=Style.TONE3)
+	results = []
+	sentence = []
+	for i in range(len(pys)):
+		if pys[i][0][0] in "，、·,":
+			pys[i][0] = ','
+		elif pys[i][0][0] in ".。…":
+			pys[i][0] = '.'
+		elif pys[i][0][0] in "―――———":
+			pys[i][0] = ','
+		elif pys[i][0][0] in "；：:;":
+			pys[i][0] = ','
+		elif pys[i][0][0] in "?？":
+			pys[i][0] = '?'
+		elif pys[i][0][0] in "!！":
+			pys[i][0] = '!'
+		elif pys[i][0][0] in "《》（）()":
+			continue
+		elif pys[i][0][0] in "“”‘’＂\"\'":
+			continue
+		elif pys[i][0][0] in " /<>「」":
+			continue
+
+		sentence.append(pys[i][0])
+		if pys[i][0] in ",.;?!:":
+			results.append(' '.join(sentence))
+			sentence = []
+
+	if len(sentence) > 0:
+		results.append(' '.join(sentence))
+
+	for i, res in enumerate(results):
+		if results[i][-1] not in ",.":
+			results[i] += ' .'
+		print(res)
+
+	return results
+
+
+def chs_norm(text):
+	url = 'http://search.ximalaya.com/text-format/numberFormat/convert'
+	payload = json.dumps(list(text)).encode()
+	request = urllib.request.Request(url, payload)
+	request.add_header("Content-Type",'application/json')
+	responese = urllib.request.urlopen(request)
+	return ''.join(json.loads(responese.read().decode()))
+
 
 api = falcon.API()
 api.add_route("/",Res())
