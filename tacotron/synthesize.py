@@ -2,6 +2,7 @@ import argparse
 import os
 import re
 import time
+import numpy as np
 from time import sleep
 from datasets import audio
 import tensorflow as tf
@@ -56,26 +57,19 @@ def run_eval(args, checkpoint_path, output_dir, hparams, sentences):
 	synth = Synthesizer()
 	synth.load(checkpoint_path, hparams)
 
-
-	# with open(os.path.join(eval_dir, 'map.txt'), 'w') as file:
-	# 	for i, text in enumerate(tqdm(sentences)):
-	# 		start = time.time()
-	# 		mel_filename, speaker_id = synth.synthesize([text], [i+1], eval_dir, log_dir, None)
-	#
-	# 		file.write('{}|{}|{}\n'.format(text, mel_filename[0], speaker_id[0]))
-	# log('synthesized mel spectrograms at {}'.format(eval_dir))
 	sentences = list(map(lambda s: s.strip(), sentences))
-	delta_size = hparams.tacotron_synthesis_batch_size if hparams.tacotron_synthesis_batch_size < len(
-		sentences) else len(sentences)
-	batch_sentences = [sentences[i: i + hparams.tacotron_synthesis_batch_size] for i in range(0, len(sentences), delta_size)]
-	
+	delta_size = hparams.tacotron_synthesis_batch_size if hparams.tacotron_synthesis_batch_size < len(sentences) else len(sentences)
+	batch_sentences = [sentences[i: i+hparams.tacotron_synthesis_batch_size] for i in range(0, len(sentences), delta_size)]
 	start = time.time()
-	
 	for i, batch in enumerate(tqdm(batch_sentences)):
-		# synth.synthesize(batch, None, eval_dir, log_dir, None)
-		audio.save_wav(synth.eval(batch), os.path.join(log_dir, 'wavs', 'eval_batch_{:03}.wav'.format(i)), hparams)
+		# synth.eval(batch, log_dir)
+		mel_filename = os.path.join(eval_dir, '{:03d}.npy'.format(i))
+		mel = synth.eval(batch)
+		np.save(mel_filename, mel.T, allow_pickle=False)
+		wav = audio.inv_mel_spectrogram(mel.T, hparams)
+		audio.save_wav(wav, os.path.join(eval_dir, '{:03d}.wav'.format(i)), hparams)
 	log('\nGenerated total batch of {} in {:.3f} sec'.format(delta_size, time.time() - start))
-		
+
 	return eval_dir
 
 def run_synthesis(args, checkpoint_path, output_dir, hparams):
@@ -99,7 +93,7 @@ def run_synthesis(args, checkpoint_path, output_dir, hparams):
 	with open(metadata_filename, encoding='utf-8') as f:
 		metadata = [line.strip().split('|') for line in f]
 		frame_shift_ms = hparams.hop_size / hparams.sample_rate
-		hours = sum([int(x[4]) for x in metadata]) * frame_shift_ms / (3600)
+		hours = sum([int(x[2]) for x in metadata]) * frame_shift_ms / (3600)
 		log('Loaded metadata for {} examples ({:.2f} hours)'.format(len(metadata), hours))
 
 	metadata = [metadata[i: i+hparams.tacotron_synthesis_batch_size] for i in range(0, len(metadata), hparams.tacotron_synthesis_batch_size)]
@@ -109,13 +103,13 @@ def run_synthesis(args, checkpoint_path, output_dir, hparams):
 	wav_dir = os.path.join(args.input_dir, 'audio')
 	with open(os.path.join(synth_dir, 'map.txt'), 'w') as file:
 		for i, meta in enumerate(tqdm(metadata)):
-			texts = [m[5] for m in meta]
-			mel_filenames = [os.path.join(mel_dir, m[1]) for m in meta]
-			wav_filenames = [os.path.join(wav_dir, m[0]) for m in meta]
+			texts = [m[3] for m in meta]
+			mel_filenames = [os.path.join(mel_dir, m[0]) for m in meta]
+			# wav_filenames = [os.path.join(wav_dir, m[0]) for m in meta]
 			basenames = [os.path.basename(m).replace('.npy', '').replace('mel-', '') for m in mel_filenames]
 			mel_output_filenames, speaker_ids = synth.synthesize(texts, basenames, synth_dir, None, mel_filenames)
 
-			for elems in zip(wav_filenames, mel_filenames, mel_output_filenames, speaker_ids, texts):
+			for elems in zip(mel_filenames, mel_output_filenames, speaker_ids, texts):
 				file.write('|'.join([str(x) for x in elems]) + '\n')
 	log('synthesized mel spectrograms at {}'.format(synth_dir))
 	return os.path.join(synth_dir, 'map.txt')

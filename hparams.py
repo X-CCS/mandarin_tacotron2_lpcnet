@@ -13,7 +13,7 @@ hparams = tf.contrib.training.HParams(
 	###########################################################################################################################################
 
 	#Audio
-	num_mels = 160, #Number of mel-spectrogram channels and local conditioning dimensionality
+	num_mels = 80, #Number of mel-spectrogram channels and local conditioning dimensionality
 	num_freq = 2049, # (= n_fft / 2 + 1) only used when adding linear spectrograms post processing network
 	rescale = False, #Whether to rescale audio prior to preprocessing
 	rescaling_max = 0.999, #Rescaling value
@@ -119,7 +119,7 @@ hparams = tf.contrib.training.HParams(
 	# Whether to use loss mask for padded sequences (if False, <stop_token> loss function will not be weighted, else recommended pos_weight = 20)
 	cross_entropy_pos_weight=1,
 	# Use class weights to reduce the stop token classes imbalance (by adding more penalty on False Negatives (FN)) (1 = disabled)
-	predict_linear=True,
+	# predict_linear=True,
 	# Whether to add a post-processing network to the Tacotron to predict linear spectrograms (True mode Not tested!!)
 	###########################################################################################################################################
 	# Tacotron Training

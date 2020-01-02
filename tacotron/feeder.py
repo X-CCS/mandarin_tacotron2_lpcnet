@@ -100,9 +100,7 @@ class Feeder:
 			# eval_queue = tf.FIFOQueue(1, [tf.int32, tf.int32, tf.float32, tf.float32, tf.float32, tf.int32], name='eval_queue')
 			eval_queue = tf.FIFOQueue(1, [tf.int32, tf.int32, tf.float32, tf.float32, tf.int32], name='eval_queue')
 			self._eval_enqueue_op = eval_queue.enqueue(self._placeholders)
-			self.eval_inputs, self.eval_input_lengths, self.eval_mel_targets, self.eval_token_targets, \
-				# self.eval_linear_targets, self.eval_targets_lengths = eval_queue.dequeue()
-			self.eval_targets_lengths = eval_queue.dequeue()
+			self.eval_inputs, self.eval_input_lengths, self.eval_mel_targets, self.eval_token_targets,self.eval_targets_lengths = eval_queue.dequeue()
 		
 		self.eval_inputs.set_shape(self._placeholders[0].shape)
 		self.eval_input_lengths.set_shape(self._placeholders[1].shape)
@@ -112,152 +110,152 @@ class Feeder:
 		self.eval_targets_lengths.set_shape(self._placeholders[4].shape)
 
 
-def start_threads(self, session):
-	self._session = session
-	thread = threading.Thread(name='background', target=self._enqueue_next_train_group)
-	thread.daemon = True  # Thread will close when parent quits
-	thread.start()
+	def start_threads(self, session):
+		self._session = session
+		thread = threading.Thread(name='background', target=self._enqueue_next_train_group)
+		thread.daemon = True  # Thread will close when parent quits
+		thread.start()
+		
+		thread = threading.Thread(name='background', target=self._enqueue_next_test_group)
+		thread.daemon = True  # Thread will close when parent quits
+		thread.start()
 	
-	thread = threading.Thread(name='background', target=self._enqueue_next_test_group)
-	thread.daemon = True  # Thread will close when parent quits
-	thread.start()
-
-
-def _get_test_groups(self):
-	meta = self._test_meta[self._test_offset]
-	self._test_offset += 1
 	
-	text = meta[3]
+	def _get_test_groups(self):
+		meta = self._test_meta[self._test_offset]
+		self._test_offset += 1
+		
+		text = meta[3]
+		
+		input_data = np.asarray(text_to_sequence(text, self._cleaner_names), dtype=np.int32)
+		mel_target = np.load(os.path.join(self._mel_dir, meta[0]))
+		# Create parallel sequences containing zeros to represent a non finished sequence
+		token_target = np.asarray([0.] * (len(mel_target) - 1))
+		# linear_target = np.load(os.path.join(self._linear_dir, meta[2]))
+		return (input_data, mel_target, token_target, len(mel_target))
 	
-	input_data = np.asarray(text_to_sequence(text, self._cleaner_names), dtype=np.int32)
-	mel_target = np.load(os.path.join(self._mel_dir, meta[0]))
-	# Create parallel sequences containing zeros to represent a non finished sequence
-	token_target = np.asarray([0.] * (len(mel_target) - 1))
-	# linear_target = np.load(os.path.join(self._linear_dir, meta[2]))
-	return (input_data, mel_target, token_target, len(mel_target))
-
-
-def make_test_batches(self):
-	start = time.time()
 	
-	# Read a group of examples
-	n = self._hparams.tacotron_batch_size
-	r = self._hparams.outputs_per_step
-	
-	# Test on entire test set
-	examples = [self._get_test_groups() for i in range(len(self._test_meta))]
-	
-	# Bucket examples based on similar output sequence length for efficiency
-	examples.sort(key=lambda x: x[-1])
-	batches = [examples[i: i + n] for i in range(0, len(examples), n)]
-	np.random.shuffle(batches)
-	
-	log('\nGenerated {} test batches of size {} in {:.3f} sec'.format(len(batches), n, time.time() - start))
-	return batches, r
-
-
-def _enqueue_next_train_group(self):
-	while not self._coord.should_stop():
+	def make_test_batches(self):
 		start = time.time()
 		
 		# Read a group of examples
 		n = self._hparams.tacotron_batch_size
 		r = self._hparams.outputs_per_step
-		examples = [self._get_next_example() for i in range(n * _batches_per_group)]
+		
+		# Test on entire test set
+		examples = [self._get_test_groups() for i in range(len(self._test_meta))]
 		
 		# Bucket examples based on similar output sequence length for efficiency
 		examples.sort(key=lambda x: x[-1])
 		batches = [examples[i: i + n] for i in range(0, len(examples), n)]
 		np.random.shuffle(batches)
 		
-		log('\nGenerated {} train batches of size {} in {:.3f} sec'.format(len(batches), n, time.time() - start))
-		for batch in batches:
-			feed_dict = dict(zip(self._placeholders, self._prepare_batch(batch, r)))
-			self._session.run(self._enqueue_op, feed_dict=feed_dict)
-
-
-def _enqueue_next_test_group(self):
-	# Create test batches once and evaluate on them for all test steps
-	test_batches, r = self.make_test_batches()
-	while not self._coord.should_stop():
-		for batch in test_batches:
-			feed_dict = dict(zip(self._placeholders, self._prepare_batch(batch, r)))
-			self._session.run(self._eval_enqueue_op, feed_dict=feed_dict)
-
-
-def _get_next_example(self):
-	"""Gets a single example (input, mel_target, token_target, mel_length) from_ disk
-	"""
-	if self._train_offset >= len(self._train_meta):
-		self._train_offset = 0
-		np.random.shuffle(self._train_meta)
+		log('\nGenerated {} test batches of size {} in {:.3f} sec'.format(len(batches), n, time.time() - start))
+		return batches, r
 	
-	meta = self._train_meta[self._train_offset]
-	self._train_offset += 1
 	
-	text = meta[3]
+	def _enqueue_next_train_group(self):
+		while not self._coord.should_stop():
+			start = time.time()
+			
+			# Read a group of examples
+			n = self._hparams.tacotron_batch_size
+			r = self._hparams.outputs_per_step
+			examples = [self._get_next_example() for i in range(n * _batches_per_group)]
+			
+			# Bucket examples based on similar output sequence length for efficiency
+			examples.sort(key=lambda x: x[-1])
+			batches = [examples[i: i + n] for i in range(0, len(examples), n)]
+			np.random.shuffle(batches)
+			
+			log('\nGenerated {} train batches of size {} in {:.3f} sec'.format(len(batches), n, time.time() - start))
+			for batch in batches:
+				feed_dict = dict(zip(self._placeholders, self._prepare_batch(batch, r)))
+				self._session.run(self._enqueue_op, feed_dict=feed_dict)
 	
-	input_data = np.asarray(text_to_sequence(text, self._cleaner_names), dtype=np.int32)
-	mel_target = np.load(os.path.join(self._mel_dir, meta[0]))
-	# Create parallel sequences containing zeros to represent a non finished sequence
-	token_target = np.asarray([0.] * (len(mel_target) - 1))
-	# linear_target = np.load(os.path.join(self._linear_dir, meta[2]))
-	return (input_data, mel_target, token_target, len(mel_target))
-
-
-def _prepare_batch(self, batch, outputs_per_step):
-	np.random.shuffle(batch)
-	inputs = self._prepare_inputs([x[0] for x in batch])
-	input_lengths = np.asarray([len(x[0]) for x in batch], dtype=np.int32)
-	mel_targets = self._prepare_targets([x[1] for x in batch], outputs_per_step)
-	# Pad sequences with 1 to infer that the sequence is done
-	token_targets = self._prepare_token_targets([x[2] for x in batch], outputs_per_step)
-	# linear_targets = self._prepare_targets([x[3] for x in batch], outputs_per_step)
-	targets_lengths = np.asarray([x[-1] for x in batch], dtype=np.int32)  # Used to mask loss
-	return (inputs, input_lengths, mel_targets, token_targets, targets_lengths)
-
-
-def _prepare_inputs(self, inputs):
-	# max_len = max([len(x) for x in inputs])
-	# assert (max([len(x) for x in inputs]) <= self._hparams.max_text_length)
-	# max_len = self._hparams.max_text_length
-	max_len = max([len(x) for x in inputs])
-	return np.stack([self._pad_input(x, max_len) for x in inputs])
-
-
-def _prepare_targets(self, targets, alignment):
-	# max_len = max([len(t) for t in targets])
-	# assert (max([len(t) for t in targets]) <= self._hparams.max_mel_frames)
-	# max_len = self._hparams.max_mel_frames
-	max_len = max([len(t) for t in targets])
-	return np.stack([self._pad_target(t, self._round_up(max_len, alignment)) for t in targets])
-
-
-def _prepare_token_targets(self, targets, alignment):
-	# max_len = max([len(t) for t in targets]) + 1
-	# assert (max([len(t) for t in targets]) + 1 <= self._hparams.max_mel_frames)
-	# max_len = self._hparams.max_mel_frames
-	max_len = max([len(t) for t in targets]) + 1
-	return np.stack([self._pad_token_target(t, self._round_up(max_len, alignment)) for t in targets])
-
-
-def _pad_input(self, x, length):
-	return np.pad(x, (0, length - x.shape[0]), mode='constant', constant_values=self._pad)
-
-
-def _pad_target(self, t, length):
-	return np.pad(t, [(0, length - t.shape[0]), (0, 0)], mode='constant', constant_values=self._target_pad)
-
-
-def _pad_token_target(self, t, length):
-	return np.pad(t, (0, length - t.shape[0]), mode='constant', constant_values=self._token_pad)
-
-
-def _round_up(self, x, multiple):
-	remainder = x % multiple
-	return x if remainder == 0 else x + multiple - remainder
-
-
-def _round_down(self, x, multiple):
-	remainder = x % multiple
-	return x if remainder == 0 else x - remainder
+	
+	def _enqueue_next_test_group(self):
+		# Create test batches once and evaluate on them for all test steps
+		test_batches, r = self.make_test_batches()
+		while not self._coord.should_stop():
+			for batch in test_batches:
+				feed_dict = dict(zip(self._placeholders, self._prepare_batch(batch, r)))
+				self._session.run(self._eval_enqueue_op, feed_dict=feed_dict)
+	
+	
+	def _get_next_example(self):
+		"""Gets a single example (input, mel_target, token_target, mel_length) from_ disk
+		"""
+		if self._train_offset >= len(self._train_meta):
+			self._train_offset = 0
+			np.random.shuffle(self._train_meta)
+		
+		meta = self._train_meta[self._train_offset]
+		self._train_offset += 1
+		
+		text = meta[3]
+		
+		input_data = np.asarray(text_to_sequence(text, self._cleaner_names), dtype=np.int32)
+		mel_target = np.load(os.path.join(self._mel_dir, meta[0]))
+		# Create parallel sequences containing zeros to represent a non finished sequence
+		token_target = np.asarray([0.] * (len(mel_target) - 1))
+		# linear_target = np.load(os.path.join(self._linear_dir, meta[2]))
+		return (input_data, mel_target, token_target, len(mel_target))
+	
+	
+	def _prepare_batch(self, batch, outputs_per_step):
+		np.random.shuffle(batch)
+		inputs = self._prepare_inputs([x[0] for x in batch])
+		input_lengths = np.asarray([len(x[0]) for x in batch], dtype=np.int32)
+		mel_targets = self._prepare_targets([x[1] for x in batch], outputs_per_step)
+		# Pad sequences with 1 to infer that the sequence is done
+		token_targets = self._prepare_token_targets([x[2] for x in batch], outputs_per_step)
+		# linear_targets = self._prepare_targets([x[3] for x in batch], outputs_per_step)
+		targets_lengths = np.asarray([x[-1] for x in batch], dtype=np.int32)  # Used to mask loss
+		return (inputs, input_lengths, mel_targets, token_targets, targets_lengths)
+	
+	
+	def _prepare_inputs(self, inputs):
+		# max_len = max([len(x) for x in inputs])
+		# assert (max([len(x) for x in inputs]) <= self._hparams.max_text_length)
+		# max_len = self._hparams.max_text_length
+		max_len = max([len(x) for x in inputs])
+		return np.stack([self._pad_input(x, max_len) for x in inputs])
+	
+	
+	def _prepare_targets(self, targets, alignment):
+		# max_len = max([len(t) for t in targets])
+		# assert (max([len(t) for t in targets]) <= self._hparams.max_mel_frames)
+		# max_len = self._hparams.max_mel_frames
+		max_len = max([len(t) for t in targets])
+		return np.stack([self._pad_target(t, self._round_up(max_len, alignment)) for t in targets])
+	
+	
+	def _prepare_token_targets(self, targets, alignment):
+		# max_len = max([len(t) for t in targets]) + 1
+		# assert (max([len(t) for t in targets]) + 1 <= self._hparams.max_mel_frames)
+		# max_len = self._hparams.max_mel_frames
+		max_len = max([len(t) for t in targets]) + 1
+		return np.stack([self._pad_token_target(t, self._round_up(max_len, alignment)) for t in targets])
+	
+	
+	def _pad_input(self, x, length):
+		return np.pad(x, (0, length - x.shape[0]), mode='constant', constant_values=self._pad)
+	
+	
+	def _pad_target(self, t, length):
+		return np.pad(t, [(0, length - t.shape[0]), (0, 0)], mode='constant', constant_values=self._target_pad)
+	
+	
+	def _pad_token_target(self, t, length):
+		return np.pad(t, (0, length - t.shape[0]), mode='constant', constant_values=self._token_pad)
+	
+	
+	def _round_up(self, x, multiple):
+		remainder = x % multiple
+		return x if remainder == 0 else x + multiple - remainder
+	
+	
+	def _round_down(self, x, multiple):
+		remainder = x % multiple
+		return x if remainder == 0 else x - remainder

@@ -16,7 +16,8 @@ def save_wav(wav, path, hparams):
 	# f2 = np.sign(wav) * np.power(np.abs(wav), 0.85)
 	f2 = np.sign(wav) * np.power(np.abs(wav), 0.95)
 	wav = f1 * f2
-	wav = signal.convolve(wav, signal.firwin(hparams.num_freq, [hparams.fmin, hparams.fmax], pass_zero=False, fs=hparams.sample_rate))
+	# wav = signal.convolve(wav, signal.firwin(hparams.num_freq, [hparams.fmin, hparams.fmax], pass_zero=False, fs=hparams.sample_rate))
+	wav = signal.convolve(wav, signal.firwin(256, [hparams.fmin, hparams.fmax], pass_zero=False, fs=hparams.sample_rate))
 	#proposed by @dsmiller
 	wavfile.write(path, hparams.sample_rate, wav.astype(np.int16))
 
@@ -101,13 +102,14 @@ def inv_mel_spectrogram(mel_spectrogram, hparams):
 
 	S = _mel_to_linear(_db_to_amp(D + hparams.ref_level_db), hparams)  # Convert back to linear
 
-	if hparams.use_lws:
-		processor = _lws_processor(hparams)
-		D = processor.run_lws(S.astype(np.float64).T ** hparams.power)
-		y = processor.istft(D).astype(np.float32)
-		return inv_preemphasis(y, hparams.preemphasis)
-	else:
-		return inv_preemphasis(_griffin_lim(S ** hparams.power, hparams), hparams.preemphasis)
+	# if hparams.use_lws:
+	# 	processor = _lws_processor(hparams)
+	# 	D = processor.run_lws(S.astype(np.float64).T ** hparams.power)
+	# 	y = processor.istft(D).astype(np.float32)
+	# 	return inv_preemphasis(y, hparams.preemphasis)
+	# else:
+	# 	return inv_preemphasis(_griffin_lim(S ** hparams.power, hparams), hparams.preemphasis)
+	return inv_preemphasis(_griffin_lim(S ** hparams.power, hparams), hparams.preemphasis)
 
 def inv_spectrogram_tensorflow(spectrogram, hparams):
 	'''Builds computational graph to convert spectrogram to waveform using TensorFlow.
@@ -173,6 +175,7 @@ def _stft(y, hparams):
 	# else:
 	# 	return librosa.stft(y=y, n_fft=hparams.n_fft, hop_length=get_hop_size(hparams), win_length=hparams.win_size)
 	return librosa.stft(y=y, n_fft=hparams.n_fft, hop_length=get_hop_size(hparams), win_length=hparams.win_size)
+
 def _istft(y, hparams):
 	return librosa.istft(y, hop_length=get_hop_size(hparams), win_length=hparams.win_size)
 

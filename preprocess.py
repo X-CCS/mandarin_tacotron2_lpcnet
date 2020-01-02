@@ -9,13 +9,12 @@ from tqdm import tqdm
 
 def preprocess(args, input_folders, out_dir, hparams):
 	mel_dir = os.path.join(out_dir, 'mels')
-	# wav_dir = os.path.join(out_dir, 'audio')
+	wav_dir = os.path.join(out_dir, 'audio')
 	# linear_dir = os.path.join(out_dir, 'linear')
 	os.makedirs(mel_dir, exist_ok=True)
-	# os.makedirs(wav_dir, exist_ok=True)
+	os.makedirs(wav_dir, exist_ok=True)
 	# os.makedirs(linear_dir, exist_ok=True)
-	# metadata = preprocessor.build_from_path(hparams, input_folders, mel_dir, linear_dir, wav_dir, args.n_jobs, tqdm=tqdm)
-	metadata = preprocessor.build_from_path(hparams, input_folders, mel_dir, args.n_jobs, tqdm=tqdm)
+	metadata = preprocessor.build_from_path(hparams, input_folders, wav_dir, mel_dir, args.n_jobs, tqdm=tqdm)
 	write_metadata(metadata, out_dir)
 
 def write_metadata(metadata, out_dir):

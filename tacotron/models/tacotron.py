@@ -15,10 +15,8 @@ class Tacotron():
 	
 	def __init__(self, hparams):
 		self._hparams = hparams
-	
-	def initialize(self, inputs, input_lengths, mel_targets=None, stop_token_targets=None,
-	               targets_lengths=None, gta=False,
-	               global_step=None, is_training=False, is_evaluating=False):
+		
+	def initialize(self, inputs, input_lengths, mel_targets=None, stop_token_targets=None, targets_lengths=None,gta=False,global_step=None, is_training=False, is_evaluating=False):
 		"""
 		Initializes the model for inference
 
@@ -33,8 +31,8 @@ class Tacotron():
 			of steps in the output time series, M is num_mels, and values are entries in the mel
 			spectrogram. Only needed for training.
 		"""
-		if mel_targets is None and stop_token_targets is not None:
-			raise ValueError('no mel targets were provided but token_targets were given')
+		# if mel_targets is None and stop_token_targets is not None:
+		# 	raise ValueError('no mel targets were provided but token_targets were given')
 		if mel_targets is not None and stop_token_targets is None and not gta:
 			raise ValueError('Mel targets are provided without corresponding token_targets')
 		# if not gta and self._hparams.predict_linear == True and linear_targets is None and is_training:
