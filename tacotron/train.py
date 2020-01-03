@@ -188,8 +188,11 @@ def train(log_dir, args, hparams):
 						after_losses.append(after_loss)
 						stop_token_losses.append(stop_token_loss)
 						attention_losses.append(attention_loss)
-
-					eval_loss = sum(eval_losses) / len(eval_losses)
+						
+					if len(eval_losses) != 0:
+						eval_loss = sum(eval_losses) / len(eval_losses)
+					else:
+						eval_loss=0
 					before_loss = sum(before_losses) / len(before_losses)
 					after_loss = sum(after_losses) / len(after_losses)
 					stop_token_loss = sum(stop_token_losses) / len(stop_token_losses)
